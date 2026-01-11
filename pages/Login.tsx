@@ -17,7 +17,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const [showForgotModal, setShowForgotModal] = useState(false);
-  const [recoveryStep, setRecoveryStep] = useState<'menu' | 'password' | 'email' | 'full-recovery' | 'sms-password'>('password');
+  const [recoveryStep, setRecoveryStep] = useState<'menu' | 'password' | 'email' | 'full-recovery' | 'sms-password' | 'signup'>('password');
   const [recoveryInput, setRecoveryInput] = useState('');
   const [newEmailDetails, setNewEmailDetails] = useState({ firstName: '', lastName: '', department: '' });
 
@@ -121,6 +121,25 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           alert(res.message);
         }
         if (res.success) setShowForgotModal(false);
+      } else if (recoveryStep === 'signup') {
+        // Handle Signup
+        // leveraging recoveryInput checks or new state? 
+        // For cleaner code, let's assume we use a new state for signup form or reuse newEmailDetails
+        if (!newEmailDetails.firstName || !email || !password) {
+          alert("Please fill all fields");
+          return;
+        }
+        const res = await ApiService.signup({
+          full_name: newEmailDetails.firstName, // reusing this state
+          email: email, // reusing main email state
+          password: password, // reusing main password state
+          phone: recoveryInput // reusing recovery input for phone
+        });
+        alert(res.message);
+        if (res.success) {
+          setShowForgotModal(false);
+          setRecoveryStep('password'); // reset
+        }
       }
     } catch (e) {
       alert('Action failed. Please try again.');
@@ -314,6 +333,17 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     )}
                   </button>
 
+                  {/* Sign Up Button (Admin Only) */}
+                  {selectedRole === UserRole.ADMIN && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowForgotModal(true); setRecoveryStep('signup'); }}
+                      className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl border-2 border-slate-200 hover:border-slate-900 hover:bg-slate-50 transition-all duration-200 flex items-center justify-center"
+                    >
+                      Create Admin Account
+                    </button>
+                  )}
+
                   <div className="pt-4 text-center">
                     <p className="text-slate-400 text-sm mb-2">Don't have an account? Contact HR:</p>
                     <div className="flex flex-col space-y-1">
@@ -364,6 +394,38 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                           {isLoading ? 'Sending...' : 'Send Reset Link'}
                         </button>
                         <button type="button" onClick={() => setShowForgotModal(false)} className="w-full text-slate-500 text-sm hover:underline">Close</button>
+                      </form>
+                    )}
+
+                    {recoveryStep === 'signup' && (
+                      <form onSubmit={handleRecovery} className="space-y-4">
+                        <div className="bg-slate-50 p-3 rounded-lg text-xs text-slate-600 mb-2">
+                          Create a new System Administrator account.
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+                          <input type="text" required className="w-full border p-2 rounded-lg" placeholder="John Doe"
+                            value={newEmailDetails.firstName} onChange={e => setNewEmailDetails({ ...newEmailDetails, firstName: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                          <input type="email" required className="w-full border p-2 rounded-lg" placeholder="admin@nexus.com"
+                            value={email} onChange={e => setEmail(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                          <input type="tel" required className="w-full border p-2 rounded-lg" placeholder="Mobile Number"
+                            value={recoveryInput} onChange={e => setRecoveryInput(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                          <input type="password" required className="w-full border p-2 rounded-lg" placeholder="Strong password"
+                            value={password} onChange={e => setPassword(e.target.value)} />
+                        </div>
+                        <button type="submit" disabled={isLoading} className="w-full bg-slate-900 text-white py-2 rounded-lg font-bold hover:bg-slate-800">
+                          {isLoading ? 'Creating...' : 'Create Admin Account'}
+                        </button>
+                        <button type="button" onClick={() => setShowForgotModal(false)} className="w-full text-slate-500 text-sm hover:underline">Cancel</button>
                       </form>
                     )}
 

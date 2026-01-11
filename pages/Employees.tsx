@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ApiService } from '../services/api';
 import { Employee } from '../types';
-import { Plus, Search, Filter, MoreVertical, Trash2, Edit2, X, Phone, Mail, MapPin, UserX } from 'lucide-react';
+import { Plus, Search, Filter, MoreVertical, Trash2, Edit2, X, Phone, Mail, MapPin, UserX, UserPlus } from 'lucide-react';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 
 const Employees: React.FC = () => {
@@ -179,7 +179,24 @@ const Employees: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              setNewEmp({
+                full_name: '', email: '', phone: '', department: 'Management', designation: 'System Admin', salary: 0, joining_date: '', password: '', address: ''
+              });
+              setIsModalOpen(true);
+            }}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-purple-700 transition-colors"
+          >
+            <UserPlus size={20} className="mr-2" />
+            Create Admin
+          </button>
+          <button
+            onClick={() => {
+              setNewEmp({
+                full_name: '', email: '', phone: '', department: 'Engineering', designation: '', salary: 0, joining_date: '', password: '', address: ''
+              });
+              setIsModalOpen(true);
+            }}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-blue-700 transition-colors"
           >
             <Plus size={20} className="mr-2" />
@@ -304,7 +321,33 @@ const Employees: React.FC = () => {
               <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-slate-400" /></button>
             </div>
             <form onSubmit={handleAddSubmit} className="p-6 space-y-4">
-              {/* Re-using exact existing form content to ensure no regression */}
+              {/* Account Type Selection (New Feature) */}
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Account Type</label>
+                <div className="flex space-x-4">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="accountType"
+                      checked={newEmp.designation !== 'System Admin'}
+                      onChange={() => setNewEmp({ ...newEmp, designation: '', department: 'Engineering' })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-slate-700">Standard Employee</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="accountType"
+                      checked={newEmp.designation === 'System Admin'}
+                      onChange={() => setNewEmp({ ...newEmp, designation: 'System Admin', department: 'Management' })}
+                      className="text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-bold text-purple-700">System Administrator</span>
+                  </label>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
@@ -329,19 +372,28 @@ const Employees: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-                  <select className="w-full border border-slate-200 rounded-lg p-2"
-                    value={newEmp.department} onChange={e => setNewEmp({ ...newEmp, department: e.target.value })}
+                  <select
+                    className={`w-full border border-slate-200 rounded-lg p-2 ${newEmp.designation === 'System Admin' ? 'bg-purple-50 text-purple-700 font-medium' : ''}`}
+                    value={newEmp.department}
+                    onChange={e => setNewEmp({ ...newEmp, department: e.target.value })}
+                    disabled={newEmp.designation === 'System Admin'}
                   >
                     <option>Engineering</option>
                     <option>Sales</option>
                     <option>Marketing</option>
                     <option>HR</option>
+                    <option>Management</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
-                  <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={newEmp.designation} onChange={e => setNewEmp({ ...newEmp, designation: e.target.value })}
+                  <input
+                    type="text"
+                    required
+                    className={`w-full border border-slate-200 rounded-lg p-2 ${newEmp.designation === 'System Admin' ? 'bg-purple-50 text-purple-700 font-semibold cursor-not-allowed' : ''}`}
+                    value={newEmp.designation}
+                    onChange={e => setNewEmp({ ...newEmp, designation: e.target.value })}
+                    readOnly={newEmp.designation === 'System Admin'}
                   />
                 </div>
               </div>

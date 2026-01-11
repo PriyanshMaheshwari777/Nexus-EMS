@@ -341,18 +341,32 @@ def update_leave_status(leave_id: int, status: str, db: Session = Depends(get_db
 def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate user (admin or employee)"""
     if credentials.role == "ADMIN":
-        if credentials.email in ADMIN_EMAILS and credentials.password == ADMIN_PASSWORDS.get(credentials.email):
+        # 1. Check Hardcoded credentials (Legacy/Root)
+        # Note: Ideally these should be in env vars or DB only, but keeping for existing compatibility
+        if (credentials.email == "admin@nexus.com" and credentials.password == "admin") or \
+           (credentials.email == "Priyansh@123" and credentials.password == "123456"):
             return LoginResponse(
                 success=True,
                 role="ADMIN",
                 email=credentials.email,
                 message="Login successful"
             )
-        else:
-            return LoginResponse(
-                success=False,
-                message="Invalid admin credentials"
+        
+        # 2. Check Database for Admin Users (New Feature)
+        # System Admin employees can log in as ADMIN
+        admin_user = db.query(EmployeeDB).filter(EmployeeDB.email == credentials.email).first()
+        if admin_user and admin_user.password == credentials.password and admin_user.designation == "System Admin":
+             return LoginResponse(
+                success=True,
+                role="ADMIN",
+                email=credentials.email,
+                message="Login successful"
             )
+            
+        return LoginResponse(
+            success=False,
+            message="Invalid admin credentials"
+        )
     else:  # EMPLOYEE
         # Find employee by email
         employee = db.query(EmployeeDB).filter(EmployeeDB.email == credentials.email).first()
@@ -368,6 +382,40 @@ def login(credentials: LoginRequest, db: Session = Depends(get_db)):
             success=False,
             message="Invalid employee credentials"
         )
+
+class SignupRequest(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    phone: str
+
+@app.post("/auth/signup")
+def signup_admin(user: SignupRequest, db: Session = Depends(get_db)):
+    """Public endpoint for Admin Registration"""
+    # Check if email exists
+    existing = db.query(EmployeeDB).filter(EmployeeDB.email == user.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Force Admin Defaults
+    new_admin = EmployeeDB(
+        full_name=user.full_name,
+        email=user.email,
+        password=user.password, # In real app, hash this!
+        phone=user.phone,
+        department="Management",
+        designation="System Admin",
+        status="Active",
+        joining_date=date.today(),
+        salary=0, # Default for self-signup
+        performance_score=100,
+        attrition_risk="Low"
+    )
+    
+    db.add(new_admin)
+    db.commit()
+    
+    return {"success": True, "message": "Admin account created successfully! Please login."}
 
 @app.put("/employees/{employee_id}/status")
 def update_employee_status(employee_id: int, status: str, db: Session = Depends(get_db)):

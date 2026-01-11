@@ -172,7 +172,21 @@ export const ApiService = {
       } else if (role === 'EMPLOYEE' && email === 'user@nexus.com' && password === 'user') {
         return { success: true, role: 'EMPLOYEE', email, message: 'Login successful' };
       }
-      return { success: false, message: 'Invalid credentials' };
+      console.log("Login Error", e);
+      return { success: false, message: "Login failed (Network Error)" };
+    }
+  },
+
+  signup: async (data: any) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return await res.json();
+    } catch (e) {
+      return { success: false, message: "Signup failed" };
     }
   },
 
