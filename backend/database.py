@@ -3,11 +3,19 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, date
 
+import os
+
 # Database connection string
-DATABASE_URL = "postgresql://neondb_owner:npg_xzPjuQn42XiC@ep-rapid-scene-ahchywtp-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+# Fallback to SQLite if no DATABASE_URL is provided (Better for simple free hosting)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./nexus.db")
 
 # Create engine
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+if "sqlite" in DATABASE_URL:
+    engine = create_engine(
+        DATABASE_URL, connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
