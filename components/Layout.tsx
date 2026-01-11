@@ -19,7 +19,7 @@ interface LayoutProps {
 const SidebarItem = ({ icon: Icon, label, active, onClick }: any) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${active
+    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 relative ${active
       ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
       : 'text-slate-400 hover:bg-slate-800 hover:text-white'
       }`}
@@ -146,6 +146,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
       if (firstItem) setTimeout(() => firstItem.focus(), 50);
     }
   }, [showNotifications]);
+
+
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -368,11 +370,21 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
                   role="button"
                 >
 
-                  <div className="w-9 h-9 bg-slate-200 rounded-full flex items-center justify-center text-slate-600">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center ${(user.email === 'Priyansh@123' || user.email === 'admin@nexus.com')
+                      ? 'bg-purple-100 text-purple-600 ring-2 ring-purple-500'
+                      : 'bg-slate-200 text-slate-600'
+                    }`}>
                     <UserIcon size={20} />
                   </div>
                   <div className="hidden md:block text-left">
-                    <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-600 transition-colors">{user.name}</p>
+                    <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-600 transition-colors flex items-center">
+                      {(user.email === 'Priyansh@123' || user.email === 'admin@nexus.com') && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold bg-purple-100 text-purple-800 mr-2 border border-purple-200 leading-none">
+                          MAIN
+                        </span>
+                      )}
+                      {user.name}
+                    </p>
                     <p className="text-xs text-slate-500">{user.role}</p>
                   </div>
                   <ChevronDown size={16} className={`text-slate-400 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />

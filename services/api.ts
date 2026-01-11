@@ -7,25 +7,8 @@ import { Employee, LeaveApplication, DashboardStats, User, Task, PayrollRecord }
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // Mock Data for fallback
-const MOCK_STATS: DashboardStats = {
-  total_employees: 124,
-  on_leave_today: 8,
-  high_attrition_risk: 12,
-  avg_performance: 87,
-  department_dist: [
-    { name: 'Engineering', value: 45 },
-    { name: 'Sales', value: 30 },
-    { name: 'HR', value: 10 },
-    { name: 'Marketing', value: 25 },
-    { name: 'Finance', value: 14 },
-  ]
-};
+// Mock Data removed to enforce DB connectivity
 
-const MOCK_EMPLOYEES: Employee[] = [
-  { id: 1, full_name: "Alice Johnson", email: "alice@nexus.com", phone: "1234567890", department: "Engineering", designation: "Senior Dev", salary: 95000, joining_date: "2021-03-15", status: "Active", performance_score: 92, attrition_risk: "Low" },
-  { id: 2, full_name: "Bob Smith", email: "bob@nexus.com", phone: "0987654321", department: "Sales", designation: "Sales Lead", salary: 75000, joining_date: "2022-01-10", status: "Active", performance_score: 85, attrition_risk: "Medium" },
-  { id: 3, full_name: "Charlie Brown", email: "charlie@nexus.com", phone: "1122334455", department: "HR", designation: "Recruiter", salary: 45000, joining_date: "2023-06-01", status: "Active", performance_score: 70, attrition_risk: "High" },
-];
 
 export const ApiService = {
   getStats: async (): Promise<DashboardStats> => {
@@ -34,8 +17,8 @@ export const ApiService = {
       if (!res.ok) throw new Error("API Offline");
       return await res.json();
     } catch (e) {
-      console.warn("Using Mock Data for Stats");
-      return MOCK_STATS;
+      console.warn("API Error (Stats)", e);
+      throw e;
     }
   },
 
@@ -45,11 +28,8 @@ export const ApiService = {
       if (!res.ok) throw new Error("API Offline");
       return await res.json();
     } catch (e) {
-      // Fallback mock suggestions if backend missing
-      return [
-        { id: 1, type: 'attrition', title: 'Attrition Alert', message: '3 Senior Developers in Engineering show high risk patterns.', action: 'Review Salaries' },
-        { id: 2, type: 'productivity', title: 'Productivity Spike', message: 'Sales team exceeded Q3 targets by 15%.', action: 'Send Appreciation' }
-      ];
+      console.warn("API Error (AI Suggestions)", e);
+      return [];
     }
   },
 
@@ -126,9 +106,8 @@ export const ApiService = {
       if (!res.ok) throw new Error("API Offline");
       return await res.json();
     } catch (e) {
-      return [
-        { id: 101, employee_id: 2, employee_name: "Bob Smith", leave_type: "Sick", start_date: "2023-10-10", end_date: "2023-10-12", reason: "Viral Fever", status: "Pending", ai_recommendation: "Balance Sufficient. Approve suggested." }
-      ];
+      console.warn("API Error (Leaves)", e);
+      return [];
     }
   },
 
@@ -150,8 +129,8 @@ export const ApiService = {
       if (!res.ok) throw new Error("API Offline");
       return await res.json();
     } catch (e) {
-      console.log("Mock Create Leave");
-      return { ...leave, id: Math.random(), employee_name: "You", status: "Pending", ai_recommendation: "" };
+      console.log("Create Leave Error", e);
+      throw e;
     }
   },
 
@@ -165,13 +144,6 @@ export const ApiService = {
       if (!res.ok) throw new Error("API Offline");
       return await res.json();
     } catch (e) {
-      console.log("Mock Login");
-      // Fallback to old hardcoded logic
-      if (role === 'ADMIN' && (email === 'admin@nexus.com' && password === 'admin') || (email === 'Priyansh@123' && password === '123456')) {
-        return { success: true, role: 'ADMIN', email, message: 'Login successful' };
-      } else if (role === 'EMPLOYEE' && email === 'user@nexus.com' && password === 'user') {
-        return { success: true, role: 'EMPLOYEE', email, message: 'Login successful' };
-      }
       console.log("Login Error", e);
       return { success: false, message: "Login failed (Network Error)" };
     }
@@ -184,9 +156,14 @@ export const ApiService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      return await res.json();
+      const json = await res.json();
+      if (!res.ok) {
+        // Normalize FastAPI error response
+        return { success: false, message: json.detail || "Signup failed" };
+      }
+      return json;
     } catch (e) {
-      return { success: false, message: "Signup failed" };
+      return { success: false, message: "Signup failed (Network Error)" };
     }
   },
 
@@ -318,24 +295,8 @@ export const ApiService = {
       }
       return await res.json();
     } catch (e: any) {
-      console.log("Mock Run Payroll");
-      // throw error if it's a specific API error (not offline)
-      if (e.message && e.message !== "API Offline" && !e.message.includes("fetch")) {
-        throw e;
-      }
-
-      // Fallback for offline/mock mode
-      const now = new Date();
-      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-      const currentMonth = months[now.getMonth()];
-      const currentYear = now.getFullYear();
-
-      return {
-        message: `Payroll processed successfully for ${currentMonth} ${currentYear}`,
-        records_created: 3,
-        month: currentMonth,
-        year: currentYear
-      };
+      console.log("Run Payroll Error", e);
+      throw e;
     }
   },
 
@@ -351,46 +312,8 @@ export const ApiService = {
       if (!res.ok) throw new Error("API Offline");
       return await res.json();
     } catch (e) {
-      console.log("Mock Get Payroll Records");
-
-      // Generate mock payroll records from MOCK_EMPLOYEES
-      const now = new Date();
-      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-      const currentMonth = months[now.getMonth()];
-      const currentYear = now.getFullYear();
-
-      const mockRecords: PayrollRecord[] = MOCK_EMPLOYEES.map(emp => {
-        const monthly_basic = emp.salary / 12;
-        const hra = monthly_basic * 0.4;
-        const allowances = monthly_basic * 0.1;
-        const deductions = monthly_basic * 0.15;
-        const net_salary = monthly_basic + hra + allowances - deductions;
-
-        return {
-          id: emp.id + 100, // Mock ID
-          employee_id: emp.id,
-          employee_name: emp.full_name,
-          month: currentMonth,
-          year: currentYear,
-          basic_salary: Math.round(monthly_basic),
-          hra: Math.round(hra),
-          allowances: Math.round(allowances),
-          deductions: Math.round(deductions),
-          net_salary: Math.round(net_salary),
-          payment_date: new Date().toISOString().split('T')[0],
-          status: 'Paid',
-          released: 'Yes' // Auto-released for mock demo
-        };
-      });
-
-      // Filter based on arguments
-      let filtered = mockRecords;
-      if (employeeId) {
-        filtered = filtered.filter(r => r.employee_id === employeeId);
-      }
-      // Since we marked them as released='Yes', releasedOnly logic is satisfied.
-
-      return filtered;
+      console.log("Get Payroll Records Error", e);
+      return [];
     }
   },
 
@@ -435,23 +358,8 @@ export const ApiService = {
       if (!res.ok) throw new Error("API Offline");
       return await res.json();
     } catch (e) {
-      console.log("Mock Get Notifications");
-      return [
-        {
-          id: 1,
-          title: "Payroll Processed",
-          body: "Your payroll for December 2025 has been processed. Net salary: ₹72,500.00",
-          read: false,
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: 2,
-          title: "Welcome to Nexus EMS",
-          body: "Welcome to your new employee management dashboard.",
-          read: true,
-          createdAt: new Date(Date.now() - 86400000).toISOString() // 1 day ago
-        }
-      ];
+      console.log("Get Notifications Error", e);
+      return [];
     }
   },
 

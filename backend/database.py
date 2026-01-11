@@ -7,7 +7,8 @@ import os
 
 # Database connection string
 # Fallback to SQLite if no DATABASE_URL is provided (Better for simple free hosting)
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./nexus.db")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'nexus.db')}")
 
 # Create engine
 if "sqlite" in DATABASE_URL:

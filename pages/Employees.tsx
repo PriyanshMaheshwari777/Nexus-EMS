@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ApiService } from '../services/api';
 import { Employee } from '../types';
-import { Plus, Search, Filter, MoreVertical, Trash2, Edit2, X, Phone, Mail, MapPin, UserX, UserPlus } from 'lucide-react';
+import { Plus, Search, Filter, MoreVertical, Trash2, Edit2, X, Phone, Mail, MapPin, UserX, UserPlus, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
+import { ValidationRules, validateEmployee } from '../utils/validation';
 
 const Employees: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -36,6 +37,27 @@ const Employees: React.FC = () => {
 
   const loadEmployees = async () => {
     const data = await ApiService.getEmployees();
+
+    // Check if Main Admin exists in DB, if not, inject it
+    const hasMainAdmin = data.some(e => e.email === 'Priyansh@123');
+    if (!hasMainAdmin) {
+      const mainAdmin: Employee = {
+        id: 0, // Virtual ID
+        full_name: 'Priyansh (Main Admin)',
+        email: 'Priyansh@123',
+        phone: 'N/A',
+        department: 'Management',
+        designation: 'System Owner',
+        salary: 0,
+        joining_date: '2024-01-01',
+        status: 'Active',
+        performance_score: 100,
+        attrition_risk: 'Low',
+        role: 'ADMIN' // Ensure role is set
+      };
+      data.unshift(mainAdmin);
+    }
+
     setEmployees(data);
   };
 
@@ -48,15 +70,37 @@ const Employees: React.FC = () => {
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmp.password) {
-      alert('Please set a password for the employee');
+
+    // Strict Validation
+    const errors = validateEmployee(newEmp);
+    if (newEmp.password && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(newEmp.password)) {
+      errors.push("Password does not meet complexity requirements.");
+    }
+
+    if (errors.length > 0) {
+      alert("Validation Error:\n" + errors.join("\n"));
       return;
     }
-    await ApiService.createEmployee(newEmp);
-    setIsModalOpen(false);
-    loadEmployees();
-    // Reset form
-    setNewEmp({ full_name: '', email: '', phone: '', department: 'Engineering', designation: '', salary: 0, joining_date: '', password: '', address: '' });
+
+    try {
+      await ApiService.createEmployee(newEmp);
+      setIsModalOpen(false);
+      loadEmployees();
+      // Reset form
+      setNewEmp({
+        full_name: '',
+        email: '',
+        phone: '',
+        department: 'Engineering',
+        designation: '',
+        salary: 0,
+        joining_date: new Date().toISOString().split('T')[0],
+        password: '',
+        address: ''
+      });
+    } catch (error: any) {
+      alert(error.message || "Failed to create employee");
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -77,15 +121,23 @@ const Employees: React.FC = () => {
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedEmployee) {
-      try {
-        await ApiService.updateEmployee(selectedEmployee.id, editEmp);
-        setShowEditModal(false);
-        setSelectedEmployee(null);
-        loadEmployees();
-      } catch (error) {
-        alert('Failed to update employee. Please try again.');
-      }
+    if (!selectedEmployee) return;
+
+    // Strict Validation
+    const errors = validateEmployee(editEmp);
+    if (errors.length > 0) {
+      alert("Validation Error:\n" + errors.join("\n"));
+      return;
+    }
+
+    try {
+      await ApiService.updateEmployee(selectedEmployee.id, editEmp);
+      setShowEditModal(false);
+      setSelectedEmployee(null);
+      loadEmployees();
+    } catch (error) {
+      console.error(error);
+      alert("Failed to update employee");
     }
   };
 
@@ -205,6 +257,55 @@ const Employees: React.FC = () => {
         </div>
       </div>
 
+      {/* Pending Approvals Section (Admin Approval Workflow) */}
+      {
+        employees.some(e => e.status === 'Pending Approval') && (
+          <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-xl p-4 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center mb-3">
+              <div className="p-2 bg-yellow-100 rounded-lg mr-3">
+                <ShieldCheck className="text-yellow-700" size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-yellow-900">Pending Admin Approvals</h3>
+                <p className="text-sm text-yellow-700">These users have requested Admin access. Verify and approve them.</p>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {employees.filter(e => e.status === 'Pending Approval').map(pending => (
+                <div key={pending.id} className="bg-white p-4 rounded-lg shadow-sm border border-yellow-100 flex justify-between items-center">
+                  <div>
+                    <div className="font-bold text-slate-900">{pending.full_name}</div>
+                    <div className="text-xs text-slate-500">{pending.email}</div>
+                    <div className="text-xs text-slate-400 mt-1">{pending.designation}</div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={async () => {
+                        if (window.confirm(`Approve ${pending.full_name}?`)) {
+                          await ApiService.updateEmployeeStatus(pending.id, 'Active'); // Approve
+                          loadEmployees();
+                        }
+                      }}
+                      className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+                      title="Approve"
+                    >
+                      <CheckCircle2 size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(pending.id)}
+                      className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
+                      title="Reject"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      }
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-200">
@@ -231,11 +332,19 @@ const Employees: React.FC = () => {
               >
                 <td className="px-6 py-4">
                   <div className="flex items-center">
-                    <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold mr-3">
+                    <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold mr-3 ${emp.email === 'Priyansh@123' ? 'bg-purple-100 text-purple-700 ring-2 ring-purple-500' : 'bg-slate-200 text-slate-600'
+                      }`}>
                       {emp.full_name.charAt(0)}
                     </div>
                     <div>
-                      <div className="font-medium text-slate-900">{emp.full_name}</div>
+                      <div className="font-medium text-slate-900">
+                        {emp.email === 'Priyansh@123' && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-purple-100 text-purple-800 mr-2 border border-purple-200">
+                            Main
+                          </span>
+                        )}
+                        {emp.full_name}
+                      </div>
                       <div className="text-sm text-slate-500">{emp.email}</div>
                     </div>
                   </div>
@@ -274,34 +383,40 @@ const Employees: React.FC = () => {
                     >
                       <Phone size={16} />
                     </button>
-                    <button
-                      onClick={() => {
-                        setSelectedEmployee(emp);
-                        setEditEmp({
-                          full_name: emp.full_name,
-                          email: emp.email,
-                          phone: emp.phone,
-                          department: emp.department,
-                          designation: emp.designation,
-                          salary: emp.salary,
-                          joining_date: emp.joining_date,
-                          address: emp.address || ''
-                        });
-                        setShowEditModal(true);
-                      }}
-                      className="p-1 hover:text-blue-600"
-                      title="Edit Employee"
-                    >
-                      <Edit2 size={16} />
-                    </button>
-                    <button
-                      onClick={() => { setSelectedEmployee(emp); setShowFireModal(true); }}
-                      className="p-1 hover:text-red-600"
-                      title="Fire Employee"
-                    >
-                      <UserX size={16} />
-                    </button>
-                    <button onClick={() => handleDelete(emp.id)} className="p-1 hover:text-red-600"><Trash2 size={16} /></button>
+
+                    {/* Hide Actions for Main Admin */}
+                    {emp.email !== 'Priyansh@123' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setSelectedEmployee(emp);
+                            setEditEmp({
+                              full_name: emp.full_name,
+                              email: emp.email,
+                              phone: emp.phone,
+                              department: emp.department,
+                              designation: emp.designation,
+                              salary: emp.salary,
+                              joining_date: emp.joining_date,
+                              address: emp.address || ''
+                            });
+                            setShowEditModal(true);
+                          }}
+                          className="p-1 hover:text-blue-600"
+                          title="Edit Employee"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => { setSelectedEmployee(emp); setShowFireModal(true); }}
+                          className="p-1 hover:text-red-600"
+                          title="Fire Employee"
+                        >
+                          <UserX size={16} />
+                        </button>
+                        <button onClick={() => handleDelete(emp.id)} className="p-1 hover:text-red-600"><Trash2 size={16} /></button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -312,499 +427,549 @@ const Employees: React.FC = () => {
 
       {/* ... existing Modals (Add, Contact, Fire, Edit) ... */}
       {/* Add Employee Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          {/* ... modal content ... */}
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="text-xl font-bold text-slate-900">Add New Employee</h3>
-              <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-slate-400" /></button>
-            </div>
-            <form onSubmit={handleAddSubmit} className="p-6 space-y-4">
-              {/* Account Type Selection (New Feature) */}
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Account Type</label>
-                <div className="flex space-x-4">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="accountType"
-                      checked={newEmp.designation !== 'System Admin'}
-                      onChange={() => setNewEmp({ ...newEmp, designation: '', department: 'Engineering' })}
-                      className="text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-slate-700">Standard Employee</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="accountType"
-                      checked={newEmp.designation === 'System Admin'}
-                      onChange={() => setNewEmp({ ...newEmp, designation: 'System Admin', department: 'Management' })}
-                      className="text-purple-600 focus:ring-purple-500"
-                    />
-                    <span className="text-sm font-bold text-purple-700">System Administrator</span>
-                  </label>
-                </div>
+      {
+        isModalOpen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            {/* ... modal content ... */}
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-900">Add New Employee</h3>
+                <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-slate-400" /></button>
               </div>
+              <form onSubmit={handleAddSubmit} className="p-6 space-y-4">
+                {/* Account Type Selection (New Feature) */}
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Account Type</label>
+                  <div className="flex space-x-4">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="accountType"
+                        checked={newEmp.designation !== 'System Admin'}
+                        onChange={() => setNewEmp({ ...newEmp, designation: '', department: 'Engineering' })}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-slate-700">Standard Employee</span>
+                    </label>
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="accountType"
+                        checked={newEmp.designation === 'System Admin'}
+                        onChange={() => setNewEmp({ ...newEmp, designation: 'System Admin', department: 'Management' })}
+                        className="text-purple-600 focus:ring-purple-500"
+                      />
+                      <span className="text-sm font-bold text-purple-700">System Administrator</span>
+                    </label>
+                  </div>
+                </div>
 
-              <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+                    <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={newEmp.full_name} onChange={e => setNewEmp({ ...newEmp, full_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={newEmp.email} onChange={e => setNewEmp({ ...newEmp, email: e.target.value })}
+                    />
+                  </div>
+                </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-                  <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={newEmp.full_name} onChange={e => setNewEmp({ ...newEmp, full_name: e.target.value })}
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
+                  <input type="tel" required className="w-full border border-slate-200 rounded-lg p-2"
+                    value={newEmp.phone} onChange={e => setNewEmp({ ...newEmp, phone: e.target.value })}
+                    placeholder="e.g. 9876543210"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+                    <select
+                      className={`w-full border border-slate-200 rounded-lg p-2 ${newEmp.designation === 'System Admin' ? 'bg-purple-50 text-purple-700 font-medium' : ''}`}
+                      value={newEmp.department}
+                      onChange={e => setNewEmp({ ...newEmp, department: e.target.value })}
+                      disabled={newEmp.designation === 'System Admin'}
+                    >
+                      <option>Engineering</option>
+                      <option>Sales</option>
+                      <option>Marketing</option>
+                      <option>HR</option>
+                      <option>Management</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
+                    <input
+                      type="text"
+                      required
+                      className={`w-full border border-slate-200 rounded-lg p-2 ${newEmp.designation === 'System Admin' ? 'bg-purple-50 text-purple-700 font-semibold cursor-not-allowed' : ''}`}
+                      value={newEmp.designation}
+                      onChange={e => setNewEmp({ ...newEmp, designation: e.target.value })}
+                      readOnly={newEmp.designation === 'System Admin'}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Salary (Annual in ₹)</label>
+                    <input type="number" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={newEmp.salary || ''}
+                      onChange={e => setNewEmp({ ...newEmp, salary: Number(e.target.value) })}
+                      onKeyDown={(e) => {
+                        // Allow only numbers, backspace, delete, tab, arrows
+                        if (['e', 'E', '+', '-', '.'].includes(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
+                      placeholder="Enter annual salary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Joining Date</label>
+                    <input type="date" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={newEmp.joining_date} onChange={e => setNewEmp({ ...newEmp, joining_date: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
+                  <textarea
+                    className="w-full border border-slate-200 rounded-lg p-2"
+                    rows={2}
+                    value={newEmp.address}
+                    onChange={e => setNewEmp({ ...newEmp, address: e.target.value })}
+                    placeholder="Employee address"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                  <input type="email" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={newEmp.email} onChange={e => setNewEmp({ ...newEmp, email: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
-                <input type="tel" required className="w-full border border-slate-200 rounded-lg p-2"
-                  value={newEmp.phone} onChange={e => setNewEmp({ ...newEmp, phone: e.target.value })}
-                  placeholder="e.g. 9876543210"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-                  <select
-                    className={`w-full border border-slate-200 rounded-lg p-2 ${newEmp.designation === 'System Admin' ? 'bg-purple-50 text-purple-700 font-medium' : ''}`}
-                    value={newEmp.department}
-                    onChange={e => setNewEmp({ ...newEmp, department: e.target.value })}
-                    disabled={newEmp.designation === 'System Admin'}
-                  >
-                    <option>Engineering</option>
-                    <option>Sales</option>
-                    <option>Marketing</option>
-                    <option>HR</option>
-                    <option>Management</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
                   <input
-                    type="text"
+                    type="password"
                     required
-                    className={`w-full border border-slate-200 rounded-lg p-2 ${newEmp.designation === 'System Admin' ? 'bg-purple-50 text-purple-700 font-semibold cursor-not-allowed' : ''}`}
-                    value={newEmp.designation}
-                    onChange={e => setNewEmp({ ...newEmp, designation: e.target.value })}
-                    readOnly={newEmp.designation === 'System Admin'}
+                    className={`w-full border p-2 rounded-lg ${newEmp.password && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(newEmp.password)
+                      ? 'border-red-500 focus:ring-red-500'
+                      : 'border-slate-200'
+                      }`}
+                    value={newEmp.password}
+                    onChange={e => setNewEmp({ ...newEmp, password: e.target.value })}
+                    placeholder="Set login password for employee"
                   />
+                  {newEmp.password && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs font-medium text-slate-500">Password must contain:</p>
+                      <ul className="text-xs space-y-0.5 text-slate-500 pl-4 list-disc">
+                        <li className={newEmp.password.length >= 8 ? "text-green-600" : ""}>At least 8 characters</li>
+                        <li className={/[A-Z]/.test(newEmp.password) ? "text-green-600" : ""}>One uppercase letter</li>
+                        <li className={/[a-z]/.test(newEmp.password) ? "text-green-600" : ""}>One lowercase letter</li>
+                        <li className={/\d/.test(newEmp.password) ? "text-green-600" : ""}>One number</li>
+                        <li className={/[@$!%*?&]/.test(newEmp.password) ? "text-green-600" : ""}>One special char (@$!%*?&)</li>
+                      </ul>
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-500 mt-1">Employee will use this password to login</p>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Salary (Annual in ₹)</label>
-                  <input type="number" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={newEmp.salary || ''}
-                    onChange={e => setNewEmp({ ...newEmp, salary: Number(e.target.value) })}
-                    onKeyDown={(e) => {
-                      // Allow only numbers, backspace, delete, tab, arrows
-                      if (['e', 'E', '+', '-', '.'].includes(e.key)) {
-                        e.preventDefault();
-                      }
-                    }}
-                    placeholder="Enter annual salary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Joining Date</label>
-                  <input type="date" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={newEmp.joining_date} onChange={e => setNewEmp({ ...newEmp, joining_date: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-                <textarea
-                  className="w-full border border-slate-200 rounded-lg p-2"
-                  rows={2}
-                  value={newEmp.address}
-                  onChange={e => setNewEmp({ ...newEmp, address: e.target.value })}
-                  placeholder="Employee address"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  required
-                  className="w-full border border-slate-200 rounded-lg p-2"
-                  value={newEmp.password}
-                  onChange={e => setNewEmp({ ...newEmp, password: e.target.value })}
-                  placeholder="Set login password for employee"
-                />
-                <p className="text-xs text-slate-500 mt-1">Employee will use this password to login</p>
-              </div>
 
-              <div className="pt-4 flex justify-end space-x-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 font-medium">Cancel</button>
-                <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Save Employee</button>
-              </div>
-            </form>
+                <div className="pt-4 flex justify-end space-x-3">
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 font-medium">Cancel</button>
+                  <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Save Employee</button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Edit/View Contact Details Modal */}
-      {showContactModal && selectedEmployee && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="text-xl font-bold text-slate-900">Contact Details</h3>
-              <button onClick={() => { setShowContactModal(false); setSelectedEmployee(null); }}>
-                <X size={20} className="text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleContactSave} className="p-6 space-y-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Mail className="text-blue-600" size={20} />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs text-slate-500 block mb-1">Email</label>
-                  <input
-                    type="email"
-                    className="w-full border border-slate-200 rounded-lg p-1.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={contactForm.email}
-                    onChange={e => setContactForm({ ...contactForm, email: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Phone className="text-green-600" size={20} />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs text-slate-500 block mb-1">Phone</label>
-                  <input
-                    type="tel"
-                    className="w-full border border-slate-200 rounded-lg p-1.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={contactForm.phone}
-                    onChange={e => setContactForm({ ...contactForm, phone: e.target.value })}
-                    placeholder="Add phone number"
-                  />
-                </div>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <MapPin className="text-purple-600" size={20} />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs text-slate-500 block mb-1">Address</label>
-                  <textarea
-                    className="w-full border border-slate-200 rounded-lg p-1.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                    rows={2}
-                    value={contactForm.address}
-                    onChange={e => setContactForm({ ...contactForm, address: e.target.value })}
-                    placeholder="Add address"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
-                  Save Changes
+      {
+        showContactModal && selectedEmployee && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-900">Contact Details</h3>
+                <button onClick={() => { setShowContactModal(false); setSelectedEmployee(null); }}>
+                  <X size={20} className="text-slate-400" />
                 </button>
               </div>
-            </form>
+              <form onSubmit={handleContactSave} className="p-6 space-y-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Mail className="text-blue-600" size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500 block mb-1">Email</label>
+                    <input
+                      type="email"
+                      className="w-full border border-slate-200 rounded-lg p-1.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={contactForm.email}
+                      onChange={e => setContactForm({ ...contactForm, email: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <Phone className="text-green-600" size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500 block mb-1">Phone</label>
+                    <input
+                      type="tel"
+                      className="w-full border border-slate-200 rounded-lg p-1.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={contactForm.phone}
+                      onChange={e => setContactForm({ ...contactForm, phone: e.target.value })}
+                      placeholder="Add phone number"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <MapPin className="text-purple-600" size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500 block mb-1">Address</label>
+                    <textarea
+                      className="w-full border border-slate-200 rounded-lg p-1.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                      rows={2}
+                      value={contactForm.address}
+                      onChange={e => setContactForm({ ...contactForm, address: e.target.value })}
+                      placeholder="Add address"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Fire Employee Modal */}
-      {showFireModal && selectedEmployee && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="text-xl font-bold text-red-900">Fire Employee</h3>
-              <button onClick={() => { setShowFireModal(false); setSelectedEmployee(null); }}>
-                <X size={20} className="text-slate-400" />
-              </button>
-            </div>
-            <div className="p-6">
-              <p className="text-slate-600 mb-4">
-                Are you sure you want to fire <strong>{selectedEmployee.full_name}</strong>? This action will change their status to "Terminated".
-              </p>
-              <div className="bg-red-50 border border-red-100 rounded-lg p-3 mb-4">
-                <p className="text-sm text-red-800">
-                  <strong>Warning:</strong> This action cannot be easily undone. The employee will lose access to the system.
-                </p>
+      {
+        showFireModal && selectedEmployee && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-red-900">Fire Employee</h3>
+                <button onClick={() => { setShowFireModal(false); setSelectedEmployee(null); }}>
+                  <X size={20} className="text-slate-400" />
+                </button>
               </div>
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => { setShowFireModal(false); setSelectedEmployee(null); }}
-                  className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleFireEmployee}
-                  className="px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700"
-                >
-                  Fire Employee
-                </button>
+              <div className="p-6">
+                <p className="text-slate-600 mb-4">
+                  Are you sure you want to fire <strong>{selectedEmployee.full_name}</strong>? This action will change their status to "Terminated".
+                </p>
+                <div className="bg-red-50 border border-red-100 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-red-800">
+                    <strong>Warning:</strong> This action cannot be easily undone. The employee will lose access to the system.
+                  </p>
+                </div>
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => { setShowFireModal(false); setSelectedEmployee(null); }}
+                    className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleFireEmployee}
+                    className="px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700"
+                  >
+                    Fire Employee
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Edit Employee Modal */}
-      {showEditModal && selectedEmployee && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="text-xl font-bold text-slate-900">Edit Employee</h3>
-              <button onClick={() => { setShowEditModal(false); setSelectedEmployee(null); }}>
-                <X size={20} className="text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
-              {/* Re-using existing edit form fields */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-                  <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={editEmp.full_name} onChange={e => setEditEmp({ ...editEmp, full_name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                  <input type="email" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={editEmp.email} onChange={e => setEditEmp({ ...editEmp, email: e.target.value })}
-                  />
-                </div>
+      {
+        showEditModal && selectedEmployee && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-900">Edit Employee</h3>
+                <button onClick={() => { setShowEditModal(false); setSelectedEmployee(null); }}>
+                  <X size={20} className="text-slate-400" />
+                </button>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
-                  <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={editEmp.phone} onChange={e => setEditEmp({ ...editEmp, phone: e.target.value })}
-                  />
+              <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
+                {/* Re-using existing edit form fields */}
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Account Type</label>
+                  <div className="flex space-x-4">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="editAccountType"
+                        checked={editEmp.designation !== 'System Admin'}
+                        onChange={() => setEditEmp({ ...editEmp, designation: '', department: 'Engineering' })}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-slate-700">Standard Employee</span>
+                    </label>
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="editAccountType"
+                        checked={editEmp.designation === 'System Admin'}
+                        onChange={() => setEditEmp({ ...editEmp, designation: 'System Admin', department: 'Management' })}
+                        className="text-purple-600 focus:ring-purple-500"
+                      />
+                      <span className="text-sm font-bold text-purple-700">System Administrator</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+                    <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={editEmp.full_name} onChange={e => setEditEmp({ ...editEmp, full_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={editEmp.email} onChange={e => setEditEmp({ ...editEmp, email: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                    <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={editEmp.phone} onChange={e => setEditEmp({ ...editEmp, phone: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+                    <select className="w-full border border-slate-200 rounded-lg p-2"
+                      value={editEmp.department} onChange={e => setEditEmp({ ...editEmp, department: e.target.value })}
+                    >
+                      <option>Engineering</option>
+                      <option>Sales</option>
+                      <option>Marketing</option>
+                      <option>HR</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
+                    <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={editEmp.designation} onChange={e => setEditEmp({ ...editEmp, designation: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Salary (Annual in ₹)</label>
+                    <input type="number" required className="w-full border border-slate-200 rounded-lg p-2"
+                      value={editEmp.salary || ''} onChange={e => setEditEmp({ ...editEmp, salary: Number(e.target.value) })}
+                      onKeyDown={(e) => {
+                        if (['e', 'E', '+', '-', '.'].includes(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-                  <select className="w-full border border-slate-200 rounded-lg p-2"
-                    value={editEmp.department} onChange={e => setEditEmp({ ...editEmp, department: e.target.value })}
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
+                  <textarea
+                    className="w-full border border-slate-200 rounded-lg p-2"
+                    rows={2}
+                    value={editEmp.address}
+                    onChange={e => setEditEmp({ ...editEmp, address: e.target.value })}
+                  />
+                </div>
+                <div className="pt-4 flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => { setShowEditModal(false); setSelectedEmployee(null); }}
+                    className="px-4 py-2 text-slate-600 font-medium"
                   >
-                    <option>Engineering</option>
-                    <option>Sales</option>
-                    <option>Marketing</option>
-                    <option>HR</option>
-                  </select>
+                    Cancel
+                  </button>
+                  <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
+                    Update Employee
+                  </button>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
-                  <input type="text" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={editEmp.designation} onChange={e => setEditEmp({ ...editEmp, designation: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Salary (Annual in ₹)</label>
-                  <input type="number" required className="w-full border border-slate-200 rounded-lg p-2"
-                    value={editEmp.salary || ''} onChange={e => setEditEmp({ ...editEmp, salary: Number(e.target.value) })}
-                    onKeyDown={(e) => {
-                      if (['e', 'E', '+', '-', '.'].includes(e.key)) {
-                        e.preventDefault();
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-                <textarea
-                  className="w-full border border-slate-200 rounded-lg p-2"
-                  rows={2}
-                  value={editEmp.address}
-                  onChange={e => setEditEmp({ ...editEmp, address: e.target.value })}
-                />
-              </div>
-              <div className="pt-4 flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => { setShowEditModal(false); setSelectedEmployee(null); }}
-                  className="px-4 py-2 text-slate-600 font-medium"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
-                  Update Employee
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* NEW: Detail View Employee Modal */}
-      {isDetailModalOpen && selectedEmployee && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
-            <div className="relative">
-              <div className="h-32 bg-gradient-to-r from-blue-600 to-indigo-700 flex items-end p-6">
-                <div className="h-20 w-20 bg-white rounded-full border-4 border-white shadow-lg flex items-center justify-center text-3xl font-bold text-slate-700 translate-y-10">
-                  {selectedEmployee.full_name.charAt(0)}
-                </div>
-              </div>
-              <button
-                onClick={() => setIsDetailModalOpen(false)}
-                className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 text-white p-2 rounded-full transition-colors backdrop-blur-sm"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="pt-12 px-8 pb-8">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">{selectedEmployee.full_name}</h2>
-                  <p className="text-slate-500 font-medium">{selectedEmployee.designation}</p>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${selectedEmployee.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'}`}>
-                  {selectedEmployee.status}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Column 1: Personal & Contact */}
-                <div className="space-y-6">
-                  <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                    <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center">
-                      <span className="w-1 h-4 bg-blue-500 rounded mr-2"></span>
-                      Contact Information
-                    </h4>
-                    <ul className="space-y-4">
-                      <li className="flex items-start">
-                        <div className="bg-white p-2 rounded-lg shadow-sm text-blue-600 mr-3">
-                          <Mail size={18} />
-                        </div>
-                        <div>
-                          <span className="text-xs text-slate-500 block">Email Address</span>
-                          <span className="text-sm font-medium text-slate-900">{selectedEmployee.email}</span>
-                        </div>
-                      </li>
-                      <li className="flex items-start">
-                        <div className="bg-white p-2 rounded-lg shadow-sm text-green-600 mr-3">
-                          <Phone size={18} />
-                        </div>
-                        <div>
-                          <span className="text-xs text-slate-500 block">Phone Number</span>
-                          <span className="text-sm font-medium text-slate-900">{selectedEmployee.phone}</span>
-                        </div>
-                      </li>
-                      <li className="flex items-start">
-                        <div className="bg-white p-2 rounded-lg shadow-sm text-purple-600 mr-3">
-                          <MapPin size={18} />
-                        </div>
-                        <div>
-                          <span className="text-xs text-slate-500 block">Address</span>
-                          <span className="text-sm font-medium text-slate-900">{selectedEmployee.address || 'Not Provided'}</span>
-                        </div>
-                      </li>
-                    </ul>
+      {
+        isDetailModalOpen && selectedEmployee && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
+              <div className="relative">
+                <div className="h-32 bg-gradient-to-r from-blue-600 to-indigo-700 flex items-end p-6">
+                  <div className="h-20 w-20 bg-white rounded-full border-4 border-white shadow-lg flex items-center justify-center text-3xl font-bold text-slate-700 translate-y-10">
+                    {selectedEmployee.full_name.charAt(0)}
                   </div>
                 </div>
-
-                {/* Column 2: Job & Performance */}
-                <div className="space-y-6">
-                  <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                    <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center">
-                      <span className="w-1 h-4 bg-indigo-500 rounded mr-2"></span>
-                      Job Details
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <span className="text-xs text-slate-500 block mb-1">Department</span>
-                        <span className="text-sm font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-200 inline-block">
-                          {selectedEmployee.department}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-xs text-slate-500 block mb-1">Joining Date</span>
-                        <span className="text-sm font-medium text-slate-900">
-                          {new Date(selectedEmployee.joining_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
-                        </span>
-                      </div>
-                      <div className="col-span-2">
-                        <span className="text-xs text-slate-500 block mb-1">Annual Salary</span>
-                        <span className="text-lg font-bold text-slate-900">
-                          {formatCurrency(selectedEmployee.salary)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                    <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center">
-                      <span className="w-1 h-4 bg-amber-500 rounded mr-2"></span>
-                      Performance
-                    </h4>
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-slate-600 font-medium">Performance Score</span>
-                          <span className="font-bold text-slate-900">{selectedEmployee.performance_score}%</span>
-                        </div>
-                        <div className="w-full bg-slate-200 rounded-full h-2">
-                          <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${selectedEmployee.performance_score}%` }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-xs text-slate-500 block mb-1">Attrition Risk</span>
-                        <span className={`text-sm font-bold px-3 py-1 rounded-lg inline-flex items-center space-x-2 ${selectedEmployee.attrition_risk === 'High' ? 'bg-red-100 text-red-700 border border-red-200' :
-                          selectedEmployee.attrition_risk === 'Medium' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                            'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                          }`}>
-                          <span>{selectedEmployee.attrition_risk} Risk</span>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 flex justify-end space-x-3 border-t border-slate-100 pt-6">
                 <button
                   onClick={() => setIsDetailModalOpen(false)}
-                  className="px-5 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors"
+                  className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 text-white p-2 rounded-full transition-colors backdrop-blur-sm"
                 >
-                  Close
+                  <X size={20} />
                 </button>
-                <button
-                  onClick={() => {
-                    // Switch to edit mode
-                    setIsDetailModalOpen(false);
-                    setEditEmp({
-                      full_name: selectedEmployee.full_name,
-                      email: selectedEmployee.email,
-                      phone: selectedEmployee.phone,
-                      department: selectedEmployee.department,
-                      designation: selectedEmployee.designation,
-                      salary: selectedEmployee.salary,
-                      joining_date: selectedEmployee.joining_date,
-                      address: selectedEmployee.address || ''
-                    });
-                    setShowEditModal(true);
-                  }}
-                  className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm flex items-center"
-                >
-                  <Edit2 size={18} className="mr-2" /> Edit Employee
-                </button>
+              </div>
+
+              <div className="pt-12 px-8 pb-8">
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-900">{selectedEmployee.full_name}</h2>
+                    <p className="text-slate-500 font-medium">{selectedEmployee.designation}</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-sm font-semibold ${selectedEmployee.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'}`}>
+                    {selectedEmployee.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Column 1: Personal & Contact */}
+                  <div className="space-y-6">
+                    <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
+                      <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center">
+                        <span className="w-1 h-4 bg-blue-500 rounded mr-2"></span>
+                        Contact Information
+                      </h4>
+                      <ul className="space-y-4">
+                        <li className="flex items-start">
+                          <div className="bg-white p-2 rounded-lg shadow-sm text-blue-600 mr-3">
+                            <Mail size={18} />
+                          </div>
+                          <div>
+                            <span className="text-xs text-slate-500 block">Email Address</span>
+                            <span className="text-sm font-medium text-slate-900">{selectedEmployee.email}</span>
+                          </div>
+                        </li>
+                        <li className="flex items-start">
+                          <div className="bg-white p-2 rounded-lg shadow-sm text-green-600 mr-3">
+                            <Phone size={18} />
+                          </div>
+                          <div>
+                            <span className="text-xs text-slate-500 block">Phone Number</span>
+                            <span className="text-sm font-medium text-slate-900">{selectedEmployee.phone}</span>
+                          </div>
+                        </li>
+                        <li className="flex items-start">
+                          <div className="bg-white p-2 rounded-lg shadow-sm text-purple-600 mr-3">
+                            <MapPin size={18} />
+                          </div>
+                          <div>
+                            <span className="text-xs text-slate-500 block">Address</span>
+                            <span className="text-sm font-medium text-slate-900">{selectedEmployee.address || 'Not Provided'}</span>
+                          </div>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Column 2: Job & Performance */}
+                  <div className="space-y-6">
+                    <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
+                      <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center">
+                        <span className="w-1 h-4 bg-indigo-500 rounded mr-2"></span>
+                        Job Details
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <span className="text-xs text-slate-500 block mb-1">Department</span>
+                          <span className="text-sm font-bold text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-200 inline-block">
+                            {selectedEmployee.department}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-slate-500 block mb-1">Joining Date</span>
+                          <span className="text-sm font-medium text-slate-900">
+                            {new Date(selectedEmployee.joining_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+                          </span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-xs text-slate-500 block mb-1">Annual Salary</span>
+                          <span className="text-lg font-bold text-slate-900">
+                            {formatCurrency(selectedEmployee.salary)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
+                      <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 flex items-center">
+                        <span className="w-1 h-4 bg-amber-500 rounded mr-2"></span>
+                        Performance
+                      </h4>
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-600 font-medium">Performance Score</span>
+                            <span className="font-bold text-slate-900">{selectedEmployee.performance_score}%</span>
+                          </div>
+                          <div className="w-full bg-slate-200 rounded-full h-2">
+                            <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${selectedEmployee.performance_score}%` }}></div>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xs text-slate-500 block mb-1">Attrition Risk</span>
+                          <span className={`text-sm font-bold px-3 py-1 rounded-lg inline-flex items-center space-x-2 ${selectedEmployee.attrition_risk === 'High' ? 'bg-red-100 text-red-700 border border-red-200' :
+                            selectedEmployee.attrition_risk === 'Medium' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                              'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                            }`}>
+                            <span>{selectedEmployee.attrition_risk} Risk</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end space-x-3 border-t border-slate-100 pt-6">
+                  <button
+                    onClick={() => setIsDetailModalOpen(false)}
+                    className="px-5 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Switch to edit mode
+                      setIsDetailModalOpen(false);
+                      setEditEmp({
+                        full_name: selectedEmployee.full_name,
+                        email: selectedEmployee.email,
+                        phone: selectedEmployee.phone,
+                        department: selectedEmployee.department,
+                        designation: selectedEmployee.designation,
+                        salary: selectedEmployee.salary,
+                        joining_date: selectedEmployee.joining_date,
+                        address: selectedEmployee.address || ''
+                      });
+                      setShowEditModal(true);
+                    }}
+                    className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-sm flex items-center"
+                  >
+                    <Edit2 size={18} className="mr-2" /> Edit Employee
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 };
 

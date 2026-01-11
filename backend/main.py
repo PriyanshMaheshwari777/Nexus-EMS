@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import random
 import pytz
+import re
 
 from database import init_db, get_db, EmployeeDB, LeaveApplicationDB, PayrollRecordDB, NotificationDB, TaskDB
 
@@ -234,6 +235,10 @@ def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db)):
         except:
             dob = None
     
+    # Validate Password
+    if not re.match(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$", emp.password):
+        raise HTTPException(status_code=400, detail="Password too weak. Must contain 8+ chars, uppercase, lowercase, number, and special char.")
+
     # Create new employee
     new_employee = EmployeeDB(
         full_name=emp.full_name,
@@ -254,6 +259,19 @@ def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db)):
     db.add(new_employee)
     db.commit()
     db.refresh(new_employee)
+    
+    # Send Welcome Notification
+    notification = NotificationDB(
+        user_id=new_employee.id,
+        user_type="EMPLOYEE",
+        title="Welcome to Nexus EMS",
+        message=f"Welcome aboard, {new_employee.full_name}! Your account has been created successfully.",
+        type="success",
+        read="No",
+        created_at=datetime.utcnow()
+    )
+    db.add(notification)
+    db.commit()
     
     return employee_db_to_pydantic(new_employee)
 
@@ -319,6 +337,21 @@ def create_leave(leave: LeaveCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_leave)
     
+    
+    # Notify Admin
+    notification_time = datetime.utcnow()
+    admin_notification = NotificationDB(
+        user_id=0,
+        user_type="ADMIN",
+        title="New Leave Application",
+        message=f"{employee.full_name} has requested {leave.leave_type} leave from {start_date} to {end_date}.",
+        type="info",
+        read="No",
+        created_at=notification_time
+    )
+    db.add(admin_notification)
+    db.commit()
+    
     return leave_db_to_pydantic(new_leave)
 
 @app.put("/leaves/{leave_id}/status")
@@ -335,6 +368,20 @@ def update_leave_status(leave_id: int, status: str, db: Session = Depends(get_db
     db.commit()
     db.refresh(leave)
     
+    # Notify Employee
+    notification_time = datetime.utcnow()
+    notification = NotificationDB(
+        user_id=leave.employee_id,
+        user_type="EMPLOYEE",
+        title=f"Leave {status}",
+        message=f"Your leave application for {leave.start_date} has been {status}.",
+        type="success" if status == "Approved" else "error",
+        read="No",
+        created_at=notification_time
+    )
+    db.add(notification)
+    db.commit()
+
     return {"message": f"Leave status updated to {status}", "leave": leave_db_to_pydantic(leave)}
 
 @app.post("/auth/login", response_model=LoginResponse)
@@ -356,6 +403,12 @@ def login(credentials: LoginRequest, db: Session = Depends(get_db)):
         # System Admin employees can log in as ADMIN
         admin_user = db.query(EmployeeDB).filter(EmployeeDB.email == credentials.email).first()
         if admin_user and admin_user.password == credentials.password and admin_user.designation == "System Admin":
+             if admin_user.status == "Pending Approval":
+                 return LoginResponse(
+                    success=False,
+                    message="Account pending approval. Please contact Main Admin."
+                )
+
              return LoginResponse(
                 success=True,
                 role="ADMIN",
@@ -397,6 +450,10 @@ def signup_admin(user: SignupRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # Validate Password
+    if not re.match(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$", user.password):
+        raise HTTPException(status_code=400, detail="Password too weak. Must contain 8+ chars, uppercase, lowercase, number, and special char.")
+
     # Force Admin Defaults
     new_admin = EmployeeDB(
         full_name=user.full_name,
@@ -405,7 +462,7 @@ def signup_admin(user: SignupRequest, db: Session = Depends(get_db)):
         phone=user.phone,
         department="Management",
         designation="System Admin",
-        status="Active",
+        status="Pending Approval", # Require confirmation
         joining_date=date.today(),
         salary=0, # Default for self-signup
         performance_score=100,
@@ -414,8 +471,23 @@ def signup_admin(user: SignupRequest, db: Session = Depends(get_db)):
     
     db.add(new_admin)
     db.commit()
+    # db.refresh(new_admin) # Refresh to get ID if needed, but we don't return full obj
     
-    return {"success": True, "message": "Admin account created successfully! Please login."}
+    # Notify Main Admins (user_id=0 for system alerts or special query)
+    # Here we create a notification for ADMIN type
+    admin_notification = NotificationDB(
+        user_id=0, # Generic Admin ID or 0 for "All Admins" logic in get_notifications
+        user_type="ADMIN",
+        title="New Admin Registration",
+        message=f"New Admin {user.full_name} ({user.email}) has signed up and is pending approval.",
+        type="info",
+        read="No",
+        created_at=datetime.utcnow()
+    )
+    db.add(admin_notification)
+    db.commit()
+    
+    return {"success": True, "message": "Admin account created! It is now PENDING APPROVAL by the Main Admin."}
 
 @app.put("/employees/{employee_id}/status")
 def update_employee_status(employee_id: int, status: str, db: Session = Depends(get_db)):

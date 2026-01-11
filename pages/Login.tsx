@@ -1,8 +1,10 @@
+
 import React, { useState } from 'react';
 import { UserRole } from '../types';
 import { ApiService } from '../services/api';
 import { ShieldCheck, UserCircle, Mail, Lock, Eye, EyeOff, ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
+import { ValidationRules } from '../utils/validation';
 
 interface LoginProps {
   onLogin: (role: UserRole, email: string) => void;
@@ -20,6 +22,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [recoveryStep, setRecoveryStep] = useState<'menu' | 'password' | 'email' | 'full-recovery' | 'sms-password' | 'signup'>('password');
   const [recoveryInput, setRecoveryInput] = useState('');
   const [newEmailDetails, setNewEmailDetails] = useState({ firstName: '', lastName: '', department: '' });
+  // Specific state for Signup to avoid sharing with Login form
+  const [signupFormData, setSignupFormData] = useState({ fullName: '', email: '', phone: '', password: '' });
 
   // Hook for Role Selection (Admin / Employee)
   const { containerRef: roleContainerRef } = useKeyboardNavigation({
@@ -28,10 +32,17 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     axis: 'vertical'
   });
 
-  // Hook for Form (Email -> Password -> Submit)
+  // Hook for Form (Email -> Password -> Submit -> Create Admin)
   const { containerRef: formContainerRef } = useKeyboardNavigation({
-    itemSelector: 'input, button[type="submit"]',
+    itemSelector: 'input, button:not([tabIndex="-1"])',
     enabled: !!selectedRole && !showForgotModal, // Only active when role selected and no modal
+    axis: 'vertical'
+  });
+
+  // Hook for Modal Navigation
+  const { containerRef: modalContainerRef } = useKeyboardNavigation({
+    itemSelector: 'input, button', // All interactive elements in modal
+    enabled: showForgotModal,
     axis: 'vertical'
   });
 
@@ -87,20 +98,35 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     try {
       if (recoveryStep === 'password') {
-        const res: any = await ApiService.recoverPassword(recoveryInput);
-        if (res.mockDebug) {
-          alert(`${res.message}\n\n----------------\n${res.mockDebug}\n----------------`);
-        } else {
-          alert(res.message);
+        if (!email || !ValidationRules.email.test(email)) {
+          alert("Please enter a valid email address.");
+          setIsLoading(false);
+          return;
         }
-        if (res.success) setShowForgotModal(false);
+        const res: any = await ApiService.recoverPassword(email);
+        alert(res.message);
+        if (res.mockDebug) alert(res.mockDebug);
+        setShowForgotModal(false);
       } else if (recoveryStep === 'email') {
-        const res: any = await ApiService.recoverEmail(recoveryInput);
-        if (res.success && res.email) {
-          alert(`Email Found!\n\n${res.message}\n\n----------------\n${res.mockDebug}\n----------------`);
-        } else {
-          alert(res.message);
+        if (!recoveryInput || !ValidationRules.phone.test(recoveryInput)) {
+          alert("Please enter a valid 10-digit phone number.");
+          setIsLoading(false);
+          return;
         }
+        const res: any = await ApiService.recoverEmail(recoveryInput);
+        alert(res.message);
+        if (res.mockDebug) alert(res.mockDebug);
+        if (res.success) setShowForgotModal(false);
+      } else if (recoveryStep === 'phone') {
+        if (!recoveryInput || !ValidationRules.phone.test(recoveryInput)) {
+          alert("Please enter a valid 10-digit phone number.");
+          setIsLoading(false);
+          return;
+        }
+        const res: any = await ApiService.recoverPasswordByPhone(recoveryInput);
+        alert(res.message);
+        if (res.mockDebug) alert(res.mockDebug);
+        setShowForgotModal(false);
       } else if (recoveryStep === 'full-recovery') {
         // Flow: Find Email via Phone -> Send Password Reset to that Email
         const emailRes = await ApiService.recoverEmail(recoveryInput);
@@ -108,7 +134,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         if (emailRes.success && emailRes.email) {
           // Email found, now trigger password reset
           const pwdRes: any = await ApiService.recoverPassword(emailRes.email);
-          alert(`Account Recovered!\n\nEmail: ${emailRes.email}\n\n${pwdRes.message}\n\n----------------\n${pwdRes.mockDebug || ''}\n----------------`);
+          alert(`Account Recovered!\n\nEmail: ${emailRes.email} \n\n${pwdRes.message} \n\n----------------\n${pwdRes.mockDebug || ''} \n----------------`);
           setShowForgotModal(false);
         } else {
           alert(emailRes.message || 'Could not find account details.');
@@ -116,24 +142,40 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       } else if (recoveryStep === 'sms-password') {
         const res: any = await ApiService.recoverPasswordByPhone(recoveryInput);
         if (res.mockDebug) {
-          alert(`${res.message}\n\n----------------\n${res.mockDebug}\n----------------`);
+          alert(`${res.message} \n\n----------------\n${res.mockDebug} \n----------------`);
         } else {
           alert(res.message);
         }
         if (res.success) setShowForgotModal(false);
       } else if (recoveryStep === 'signup') {
         // Handle Signup
-        // leveraging recoveryInput checks or new state? 
-        // For cleaner code, let's assume we use a new state for signup form or reuse newEmailDetails
-        if (!newEmailDetails.firstName || !email || !password) {
-          alert("Please fill all fields");
+        const errors: string[] = [];
+        const { fullName, email, phone, password } = signupFormData;
+
+        if (!fullName || !ValidationRules.name.test(fullName)) {
+          errors.push("Full Name must contain only letters (2-50 chars).");
+        }
+        if (!email || !ValidationRules.email.test(email)) {
+          errors.push("Invalid Email Address.");
+        }
+        if (!phone || !ValidationRules.phone.test(phone)) {
+          errors.push("Phone must be exactly 10 digits.");
+        }
+        // Password validation is handled by UI/backend regex checking inside, but let's double check here
+        if (!password || !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password)) {
+          errors.push("Password too weak.");
+        }
+
+        if (errors.length > 0) {
+          alert("Validation Error:\n" + errors.join("\n"));
           return;
         }
+
         const res = await ApiService.signup({
-          full_name: newEmailDetails.firstName, // reusing this state
-          email: email, // reusing main email state
-          password: password, // reusing main password state
-          phone: recoveryInput // reusing recovery input for phone
+          full_name: fullName,
+          email: email,
+          password: password,
+          phone: phone
         });
         alert(res.message);
         if (res.success) {
@@ -249,7 +291,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
                 <div className="mb-8">
                   <div className="flex items-center space-x-3 mb-2">
-                    <div className={`p-2 rounded-lg ${selectedRole === UserRole.ADMIN ? 'bg-slate-900 text-white' : 'bg-blue-600 text-white'}`}>
+                    <div className={`p - 2 rounded - lg ${selectedRole === UserRole.ADMIN ? 'bg-slate-900 text-white' : 'bg-blue-600 text-white'} `}>
                       {selectedRole === UserRole.ADMIN ? <ShieldCheck size={20} /> : <UserCircle size={20} />}
                     </div>
                     <span className="font-bold text-slate-900 text-lg tracking-tight">
@@ -321,7 +363,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     className={`w-full text-white font-bold py-3.5 rounded-xl transition-all duration-200 flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed shadow-lg ${selectedRole === UserRole.ADMIN
                       ? 'bg-slate-900 hover:bg-slate-800 shadow-slate-900/20'
                       : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'
-                      }`}
+                      } `}
                   >
                     {isLoading ? (
                       <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
@@ -337,7 +379,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   {selectedRole === UserRole.ADMIN && (
                     <button
                       type="button"
-                      onClick={() => { setShowForgotModal(true); setRecoveryStep('signup'); }}
+                      onClick={() => {
+                        setShowForgotModal(true);
+                        setRecoveryStep('signup');
+                        // Clear signup form on open
+                        setSignupFormData({ fullName: '', email: '', phone: '', password: '' });
+                      }}
                       className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl border-2 border-slate-200 hover:border-slate-900 hover:bg-slate-50 transition-all duration-200 flex items-center justify-center"
                     >
                       Create Admin Account
@@ -359,7 +406,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             {/* Recovery Modal */}
             {showForgotModal && (
               <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div ref={modalContainerRef} className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                   <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                     <h3 className="text-lg font-bold text-slate-900">
                       {recoveryStep === 'menu' && 'Account Recovery'}
@@ -398,31 +445,64 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     )}
 
                     {recoveryStep === 'signup' && (
-                      <form onSubmit={handleRecovery} className="space-y-4">
+                      <form onSubmit={handleRecovery} className="space-y-4" autoComplete="off">
                         <div className="bg-slate-50 p-3 rounded-lg text-xs text-slate-600 mb-2">
                           Create a new System Administrator account.
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
                           <input type="text" required className="w-full border p-2 rounded-lg" placeholder="John Doe"
-                            value={newEmailDetails.firstName} onChange={e => setNewEmailDetails({ ...newEmailDetails, firstName: e.target.value })} />
+                            name="new_admin_fullname"
+                            autoComplete="off"
+                            value={signupFormData.fullName} onChange={e => setSignupFormData({ ...signupFormData, fullName: e.target.value })} />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
                           <input type="email" required className="w-full border p-2 rounded-lg" placeholder="admin@nexus.com"
-                            value={email} onChange={e => setEmail(e.target.value)} />
+                            name="new_admin_email"
+                            autoComplete="new-password"
+                            value={signupFormData.email} onChange={e => setSignupFormData({ ...signupFormData, email: e.target.value })} />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
                           <input type="tel" required className="w-full border p-2 rounded-lg" placeholder="Mobile Number"
-                            value={recoveryInput} onChange={e => setRecoveryInput(e.target.value)} />
+                            name="new_admin_phone"
+                            autoComplete="off"
+                            value={signupFormData.phone} onChange={e => setSignupFormData({ ...signupFormData, phone: e.target.value })} />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                          <input type="password" required className="w-full border p-2 rounded-lg" placeholder="Strong password"
-                            value={password} onChange={e => setPassword(e.target.value)} />
+                          <input
+                            type="password"
+                            required
+                            name="new_admin_password"
+                            autoComplete="new-password"
+                            className={`w-full border p-2 rounded-lg ${signupFormData.password && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(signupFormData.password)
+                              ? 'border-red-500 focus:ring-red-500'
+                              : ''
+                              } `}
+                            placeholder="Strong password"
+                            value={signupFormData.password}
+                            onChange={e => setSignupFormData({ ...signupFormData, password: e.target.value })}
+                          />
+                          {signupFormData.password && (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-xs font-medium text-slate-500">Password must contain:</p>
+                              <ul className="text-xs space-y-0.5 text-slate-500 pl-4 list-disc">
+                                <li className={password.length >= 8 ? "text-green-600" : ""}>At least 8 characters</li>
+                                <li className={/[A-Z]/.test(password) ? "text-green-600" : ""}>One uppercase letter</li>
+                                <li className={/[a-z]/.test(password) ? "text-green-600" : ""}>One lowercase letter</li>
+                                <li className={/\d/.test(password) ? "text-green-600" : ""}>One number</li>
+                                <li className={/[@$!%*?&]/.test(password) ? "text-green-600" : ""}>One special char (@$!%*?&)</li>
+                              </ul>
+                            </div>
+                          )}
                         </div>
-                        <button type="submit" disabled={isLoading} className="w-full bg-slate-900 text-white py-2 rounded-lg font-bold hover:bg-slate-800">
+                        <button
+                          type="submit"
+                          disabled={isLoading || !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(signupFormData.password)}
+                          className="w-full bg-slate-900 text-white py-2 rounded-lg font-bold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                           {isLoading ? 'Creating...' : 'Create Admin Account'}
                         </button>
                         <button type="button" onClick={() => setShowForgotModal(false)} className="w-full text-slate-500 text-sm hover:underline">Cancel</button>
