@@ -37,7 +37,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [suggestions, setSuggestions] = useState<any[]>([]);
 
 
-
+  const { containerRef: suggestionsRef } = useKeyboardNavigation({
+    itemSelector: '[data-nav-item]',
+    axis: 'vertical'
+  });
   useEffect(() => {
     loadData();
   }, []);
@@ -169,13 +172,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             Smart Suggestions
           </h3>
 
-          <div className="flex-1 space-y-4 overflow-y-auto pr-2">
+          <div ref={suggestionsRef} className="flex-1 space-y-4 overflow-y-auto pr-2">
             {suggestions.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-4">No new suggestions</p>
             ) : (
               suggestions.map((suggestion: any) => (
                 <div
                   key={suggestion.id}
+                  data-nav-item
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (suggestion.action === 'Review Salaries') handleReviewSalaries();
+                      else if (suggestion.action === 'Send Appreciation') handleSendAppreciation();
+                    }
+                  }}
                   className={`p-4 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 focus:bg-slate-50 transition-colors ${suggestion.type === 'attrition' ? 'bg-red-50 border-red-100' :
                     suggestion.type === 'productivity' ? 'bg-emerald-50 border-emerald-100' : 'bg-blue-50 border-blue-100'
                     }`}
